@@ -23,7 +23,6 @@ export class UpdateProductDto {
 
   @IsOptional()
   @IsString()
-  @Min(0)
   price?: string;
 
   @IsOptional()
