@@ -1,20 +1,14 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import products from './routes/products';
-import authRoutes from './routes/auth';
-import { initRedis } from './lib/cache';
 
 const app = express();
 app.use(express.json());
 
-// 初始化 Redis
-initRedis();
-
-app.get('/health', (_req, res) => res.json({ ok: true }));
+app.get('/health', (_req: Request, res: Response) => res.json({ ok: true }));
 app.use('/api/products', products);
-app.use('/api/auth', authRoutes);
 
-// 衝突轉 409 + 500
-app.use((err: any, _req: any, res: any, _next: any) => {
+// 衝突轉 409 + 500 fallback
+app.use((err: any, _req: Request, res: Response, _next: Function) => {
   if (err?.code === '23505') {
     return res.status(409).json({ message: '唯一性衝突（可能是 name 重複）' });
   }
