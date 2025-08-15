@@ -1,5 +1,6 @@
 import express from 'express';
 import products from './routes/products';
+import authRoutes from './routes/auth';
 import { initRedis } from './lib/cache';
 
 const app = express();
@@ -10,6 +11,7 @@ initRedis();
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use('/api/products', products);
+app.use('/api/auth', authRoutes);
 
 // 衝突轉 409 + 500
 app.use((err: any, _req: any, res: any, _next: any) => {
