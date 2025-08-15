@@ -1,89 +1,55 @@
 // src/lib/cache.ts
-import Redis, { RedisOptions } from 'ioredis';
+import Redis from 'ioredis';
 
 let redis: Redis | null = null;
 
-function buildRedisOptions(url: string): RedisOptions {
-  const isTLS = url.startsWith('rediss://');
-  const opts: RedisOptions = {
-    retryStrategy: (times) => Math.min(times * 500, 30000),
-    keepAlive: 10000,
-    reconnectOnError: (err) => {
-      if (!err) return false;
-      const msg = err.message || '';
-      return /READONLY|ETIMEDOUT|ECONNRESET|EAI_AGAIN|NOAUTH|NR_CLOSED/.test(msg);
-    },
-    enableReadyCheck: true,
-    maxRetriesPerRequest: null,
-    lazyConnect: false,
-  };
-
-  if (isTLS) {
-    // 多數供應商 TLS 預設即可；若遇到自簽憑證問題可放寬：
-    // opts.tls = { rejectUnauthorized: false };
-    opts.tls = {};
-  }
-  return opts;
-}
-
 export function initRedis() {
-  if (redis) return redis;
-
-  const url = process.env.REDIS_URL;
-  if (!url) {
-    console.warn('[Cache] REDIS_URL not set, cache disabled.');
-    return null;
-  }
-
-  try {
-    const opts = buildRedisOptions(url.trim());
-    redis = new Redis(url.trim(), opts);
-
-    redis.on('connect', () => {
-      const proto = url.startsWith('rediss://') ? 'TLS' : 'PLAINTEXT';
-      console.log(`[Cache] Redis connected (${proto}).`);
+  if (!redis) {
+    redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+      // 關掉離線佇列 + 快速失敗
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 1,
+      connectTimeout: 2000,
+      retryStrategy: () => null, // 不要無限重試
+      tls: process.env.REDIS_URL?.startsWith('rediss://') ? {} : undefined,
     });
-
-    redis.on('error', (err) => {
-      console.error('Redis Error:', err);
-    });
-  } catch (e) {
-    console.error('[Cache] Failed to init redis:', e);
-    redis = null;
+    redis.on('error', (err) => console.error('Redis Error:', err));
   }
-
   return redis;
 }
 
+function ready() {
+  return redis && (redis as any).status === 'ready';
+}
+
 export async function getCache<T = any>(key: string): Promise<T | null> {
-  const r = initRedis();
-  if (!r) return null;
+  if (!redis) initRedis();
+  if (!ready()) return null; // 連不上就直接略過
   try {
-    const val = await r.get(key);
+    const val = await redis!.get(key);
     return val ? JSON.parse(val) : null;
-  } catch (e) {
-    console.warn('[Cache] get failed, bypassing:', e);
-    return null;
+  } catch {
+    return null; // 出錯就當沒快取
   }
 }
 
 export async function setCache(key: string, value: any, ttlSeconds: number) {
-  const r = initRedis();
-  if (!r) return;
+  if (!redis) initRedis();
+  if (!ready()) return; // 不阻塞請求
   try {
-    await r.set(key, JSON.stringify(value), 'EX', ttlSeconds);
-  } catch (e) {
-    console.warn('[Cache] set failed, bypassing:', e);
-  }
+    if (ttlSeconds > 0) {
+      await redis!.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+    } else {
+      await redis!.set(key, JSON.stringify(value));
+    }
+  } catch { /* 忽略錯誤 */ }
 }
 
 export async function delCacheByPrefix(prefix: string) {
-  const r = initRedis();
-  if (!r) return;
+  if (!redis) initRedis();
+  if (!ready()) return;
   try {
-    const keys = await r.keys(`${prefix}*`);
-    if (keys.length) await r.del(keys);
-  } catch (e) {
-    console.warn('[Cache] del by prefix failed, bypassing:', e);
-  }
+    const keys = await redis!.keys(`${prefix}*`);
+    if (keys.length) await redis!.del(keys);
+  } catch { /* 忽略錯誤 */ }
 }
