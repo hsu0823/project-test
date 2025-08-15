@@ -7,9 +7,8 @@ export class CreateProductDto {
   @Length(2, 100)
   name!: string;
 
-  @IsNumber()
-  @Min(0)
-  price!: number;
+  @IsString()
+  price!: string;
 
   @IsInt()
   @Min(0)
@@ -23,9 +22,8 @@ export class UpdateProductDto {
   name?: string;
 
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  price?: number;
+  @IsString()
+  price?: string;
 
   @IsOptional()
   @IsInt()
